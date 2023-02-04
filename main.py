@@ -236,6 +236,7 @@ def discord_setup():
                     log.debug("thread id: {}, name: {}".format(
                         thread.id, thread.name))
                     log.debug("relaying chat...")
+                    await message.channel.send("Start relaying, please check the new created thread for this livestream".format(channel_id))
                     await thread.send(content="This is the start of this thread, relaying livechat...")
                     await thread.send(content="@everyone")
 
@@ -250,7 +251,7 @@ def discord_setup():
                     channel_id = commands[1]
 
                     redis_del("{}::*".format(channel_id))
-                    await message.channel.send("Stop relaying message for channel {}".format(channel_id))
+                    await message.channel.send("Stop relaying livechat for channel {}".format(channel_id))
                     log.info(
                         "stop relaying livechat for channel: {}".format(channel_id))
 
