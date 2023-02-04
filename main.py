@@ -1,6 +1,7 @@
 import asyncio
 import configparser
 import json
+import logging as log
 import os
 import sys
 from datetime import datetime
@@ -14,8 +15,8 @@ from oauth2client.file import Storage
 from oauth2client.tools import argparser, run_flow
 
 from constant import (ACTIVE, CLIENT_SECRETS_FILE, COMMAND_START, COMMAND_STOP,
-                      LIVE, MISSING_CLIENT_SECRETS_MESSAGE, REDIS_CHAT_KEY,
-                      REDIS_LIVECHAT_KEY, REDIS_STATUS_KEY,
+                      DISCORD_COMMAND, LIVE, MISSING_CLIENT_SECRETS_MESSAGE,
+                      REDIS_CHAT_KEY, REDIS_STATUS_KEY,
                       YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                       YOUTUBE_READ_WRITE_SCOPE)
 from util import get_command, write_to_file
@@ -23,27 +24,33 @@ from util import get_command, write_to_file
 os.path.abspath(os.path.join(os.path.dirname(
     __file__), CLIENT_SECRETS_FILE))
 
+log.basicConfig(
+    level=log.DEBUG,
+    format='%(asctime)s|%(name)s|%(levelname)s|%(message)s',
+    datefmt='%d-%b-%y %H:%M:%S'
+)
+
 
 def config_setup():
-    print("loading config...")
-    global client_secret_raw, redis_host, redis_port, discord_token, bot_channel_name
+    log.info("loading config...")
+    global client_secret_raw, redis_host, redis_port, discord_token, bot_channel_name, authorized_user
 
     config = configparser.RawConfigParser()
-    config_file_path = r'./config.txt'
-    config.read(config_file_path)
+    config.read(r'./config.txt')
     redis_host = config.get('app', 'redis_host')
     redis_port = config.get('app', 'redis_port')
     discord_token = config.get('app', 'discord_token')
     bot_channel_name = config.get('app', 'bot_channel_name')
+    authorized_user = config.get('app', 'authorized_user')
 
     client_secret_raw = config.get('app', 'client_secrets_json')
     client_secret_json = json.loads(client_secret_raw)
     write_to_file(CLIENT_SECRETS_FILE, client_secret_json)
-    print("config loaded")
+    log.info("config loaded")
 
 
 def redis_setup():
-    print("setup redis...")
+    log.info("setup redis...")
     global r
     r = redis.Redis(
         host=redis_host,
@@ -53,11 +60,11 @@ def redis_setup():
     )
     try:
         if r.ping():
-            print("Ping redis success")
+            log.info("Ping redis success")
         else:
-            print("Ping redis failed")
+            log.info("Ping redis failed")
     except Exception as e:
-        print("Ping redis failed, err: "+str(e))
+        log.error("Ping redis failed, err: "+str(e))
         sys.exit()
 
 
@@ -98,10 +105,9 @@ def search_live_stream(channel_id):
     for l in search_result["items"]:
         if l["snippet"]["liveBroadcastContent"] == LIVE:
             livestream_id = l["id"]["videoId"]
+            livestream_title = l["snippet"]["title"]
             channel_name = l["snippet"]["channelTitle"]
-            print("they are streaming, channel name: {}, livestream id: {}".format(
-                channel_name, livestream_id))
-            return [livestream_id, channel_name]
+            return [livestream_id, livestream_title, channel_name]
     return []
 
 
@@ -112,7 +118,6 @@ def get_live_chat_id(livestream_id):
     ).execute()
     write_to_file("python_output2.json", livestream_result)
     livechat_id = livestream_result["items"][0]["liveStreamingDetails"]["activeLiveChatId"]
-    print("got livechat ID, livechatID: "+livechat_id)
     return livechat_id
 
 
@@ -145,21 +150,19 @@ def redis_del(key: str):
 
 async def relay_chat(display_name: str, channel_id: str, live_stream_id: str, thread: discord.Thread):
     if not live_stream_id:
-        print("no live stream for today")
+        log.error("no live stream id")
     else:
         live_chat_id = get_live_chat_id(live_stream_id)
         if not live_chat_id:
-            print("something wrong, I dont get any livechatID huh!???")
+            log.error("something wrong, I dont get any livechatID huh!?!?!?")
         else:
-            print("got live chat data")
-            redis_set(REDIS_LIVECHAT_KEY.format(
-                channel_id), live_chat_id)
+            log.debug("got live chat data, channel_id: {}, live_chat_id: {}".format(
+                channel_id, live_chat_id))
             chat_redis_key = REDIS_CHAT_KEY.format(
                 channel_id, live_chat_id, display_name)
 
             while True:
                 if not redis_is_exist(REDIS_STATUS_KEY.format(channel_id)):
-                    print("stopping the relaying now")
                     break
 
                 chats = get_live_chat_data(live_chat_id)
@@ -167,40 +170,29 @@ async def relay_chat(display_name: str, channel_id: str, live_stream_id: str, th
                     if c["authorDetails"]["displayName"] == display_name:
                         redis_key = chat_redis_key+c["id"]
                         if not redis_is_exist(redis_key):
-                            # save to redis
                             msg = c["snippet"]["displayMessage"]
-                            redis_set(
-                                redis_key, msg)
-                            print("chat ID: "+c["id"])
-                            print(msg)
-
-                            # relay to discord
+                            redis_set(redis_key, msg)
                             await thread.send(content="**__{}__: {}**".format(display_name, msg))
 
-                print("sleep for 10 seconds")
-                await asyncio.sleep(10)
+                await asyncio.sleep(10)  # sleep for 10 seconds
 
 
 def discord_setup():
-    print("setup discord...")
+    log.info("setup discord...")
 
     intent = discord.Intents.default()
     intent.message_content = True
-
     client = discord.Client(intents=intent)
 
     @client.event
     async def on_ready():
-        print(f'{client.user} has connected to Discord!')
+        log.info(f'{client.user} has connected to Discord!')
 
     @client.event
     async def on_message(message: discord.Message):
-        if message.author.name == 'nyxordinal':
-            print("got message from nyxordinal")
-
-            if message.content.startswith("/dytb"):
+        if message.author.name == authorized_user:
+            if message.content.startswith(DISCORD_COMMAND):
                 commands = get_command(message.content)
-
                 if len(commands) < 2:
                     return
 
@@ -209,37 +201,41 @@ def discord_setup():
                     author_name = commands[2]
 
                     if redis_is_exist(REDIS_STATUS_KEY.format(channel_id)):
-                        msg = "relaying for channel {} already started".format(
-                            channel_id)
-                        print(msg)
-                        await message.channel.send(msg)
+                        await message.channel.send("relaying for channel {} already started".format(channel_id))
                         return
 
-                    print("creating new thread")
-                    text_channel = client.get_all_channels()
-                    tc_id = ""
-                    for t in text_channel:
-                        if t.name == bot_channel_name:
-                            tc_id = t.id
-                    tc = client.get_channel(tc_id)
+                    log.info(
+                        "creating new thread for livechat relay, channel: {}".format(channel_id))
+                    channels = client.get_all_channels()
+                    cid = ""
+                    for c in channels:
+                        if c.name == bot_channel_name:
+                            cid = c.id
+                    tc = client.get_channel(cid)
 
                     live_stream_data = search_live_stream(channel_id)
                     if len(live_stream_data) < 1:
-                        print("they are not streaming")
+                        await message.channel.send("channel {} is not livestreaming right now".format(channel_id))
                         return
 
                     redis_set(REDIS_STATUS_KEY.format(
                         channel_id), ACTIVE)
 
                     live_stream_id = live_stream_data[0]
-                    channel_name = live_stream_data[1]
+                    live_stream_title = live_stream_data[1]
+                    channel_name = live_stream_data[2]
 
-                    thread_name = "yt-livechat-relay-{}-{}".format(
-                        datetime.today().strftime('%Y-%m-%d'), channel_name)
-                    thread = await tc.create_thread(name=thread_name, reason="no reason, just bored")
-                    print("thread id: {}, name: {}".format(
+                    log.debug("got livestream data, channel name: {}, livestream id: {}, livestream title: {}".format(
+                        channel_name, live_stream_id, live_stream_title))
+
+                    thread_name = "{}|{}|{}".format(
+                        datetime.today().strftime('%Y-%m-%d'), channel_name, live_stream_title)
+                    if len(thread_name) > 100:
+                        thread_name = thread_name[:100]
+                    thread = await tc.create_thread(name=thread_name, reason="livechat relay")
+                    log.debug("thread id: {}, name: {}".format(
                         thread.id, thread.name))
-                    print("relaying chat...")
+                    log.debug("relaying chat...")
                     await thread.send(content="This is the start of this thread, relaying livechat...")
                     await thread.send(content="@everyone")
 
@@ -255,7 +251,8 @@ def discord_setup():
 
                     redis_del("{}::*".format(channel_id))
                     await message.channel.send("Stop relaying message for channel {}".format(channel_id))
-                    print("stop relaying message...")
+                    log.info(
+                        "stop relaying livechat for channel: {}".format(channel_id))
 
             # if message.content == "/bot leave":
             #     for g in client.guilds:
@@ -267,7 +264,7 @@ def discord_setup():
 
 
 if __name__ == "__main__":
-    print("starting bot...")
+    log.info("starting bot...")
     authenticate_youtube()
     config_setup()
     redis_setup()

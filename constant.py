@@ -4,7 +4,6 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
 REDIS_STATUS_KEY = "{}::status"  # channel_id::status
-REDIS_LIVECHAT_KEY = "{}::livechatid"  # channel_id::livechatid
 REDIS_CHAT_KEY = "{}::{}::{}::"  # channel_id::livechatid::author_name::chat_id
 
 COMMAND_START = "start"
