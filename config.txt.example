@@ -1,0 +1,5 @@
+[app]
+client_secrets_json = 
+redis_host = localhost
+redis_port = 6379
+discord_token = 
