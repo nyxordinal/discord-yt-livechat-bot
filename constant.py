@@ -2,9 +2,17 @@
 YOUTUBE_READ_WRITE_SCOPE = "https://www.googleapis.com/auth/youtube"
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
+
+REDIS_STATUS_KEY = "{}::status"  # channel_id::status
+REDIS_LIVECHAT_KEY = "{}::livechatid"  # channel_id::livechatid
+REDIS_CHAT_KEY = "{}::{}::{}::"  # channel_id::livechatid::author_name::chat_id
+
+COMMAND_START = "start"
+COMMAND_STOP = "stop"
+DISCORD_COMMAND = "/dytb"
+
+ACTIVE = "active"
+LIVE = "live"
+
 CLIENT_SECRETS_FILE = "client_secrets.json"
 MISSING_CLIENT_SECRETS_MESSAGE = "Please do you OAuth 2.0 bro, come one"
-DISCORD_COMMAND = "/dytb"
-REDIS_STATUS_KEY_FORMAT = "{}::status"
-ACTIVE = "active"
-INACTIVE = "inactive"
