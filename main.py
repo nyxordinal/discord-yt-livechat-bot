@@ -104,20 +104,20 @@ def search_live_stream(channel_id):
     write_to_file("python_output.json", search_result)
     for l in search_result["items"]:
         if l["snippet"]["liveBroadcastContent"] == LIVE:
-            livestream_id = l["id"]["videoId"]
-            livestream_title = l["snippet"]["title"]
+            live_stream_id = l["id"]["videoId"]
+            live_stream_title = l["snippet"]["title"]
             channel_name = l["snippet"]["channelTitle"]
-            return [livestream_id, livestream_title, channel_name]
+            return [live_stream_id, live_stream_title, channel_name]
     return []
 
 
-def get_live_chat_id(livestream_id):
-    livestream_result = youtube.videos().list(
+def get_live_chat_id(live_stream_id):
+    live_stream_result = youtube.videos().list(
         part="snippet,contentDetails,liveStreamingDetails",
-        id=livestream_id,
+        id=live_stream_id,
     ).execute()
-    write_to_file("python_output2.json", livestream_result)
-    livechat_id = livestream_result["items"][0]["liveStreamingDetails"]["activeLiveChatId"]
+    write_to_file("python_output2.json", live_stream_result)
+    livechat_id = live_stream_result["items"][0]["liveStreamingDetails"]["activeLiveChatId"]
     return livechat_id
 
 
@@ -215,7 +215,7 @@ def discord_setup():
 
                     live_stream_data = search_live_stream(channel_id)
                     if len(live_stream_data) < 1:
-                        await message.channel.send("channel {} is not livestreaming right now".format(channel_id))
+                        await message.channel.send("channel {} is not live streaming right now".format(channel_id))
                         return
 
                     redis_set(REDIS_STATUS_KEY.format(
@@ -225,18 +225,18 @@ def discord_setup():
                     live_stream_title = live_stream_data[1]
                     channel_name = live_stream_data[2]
 
-                    log.debug("got livestream data, channel name: {}, livestream id: {}, livestream title: {}".format(
+                    log.debug("got live stream data, channel name: {}, live stream id: {}, live stream title: {}".format(
                         channel_name, live_stream_id, live_stream_title))
 
                     thread_name = "{}|{}|{}".format(
                         datetime.today().strftime('%Y-%m-%d'), channel_name, live_stream_title)
                     if len(thread_name) > 100:
                         thread_name = thread_name[:100]
-                    thread = await tc.create_thread(name=thread_name, reason="livechat relay")
+                    thread = await tc.create_thread(name=thread_name, reason="livechat relay", type=discord.ChannelType.public_thread)
                     log.debug("thread id: {}, name: {}".format(
                         thread.id, thread.name))
                     log.debug("relaying chat...")
-                    await message.channel.send("Start relaying, please check the new created thread for this livestream".format(channel_id))
+                    await message.channel.send("Start relaying {}, please check the newly created thread for this live stream".format(channel_name))
                     await thread.send(content="This is the start of this thread, relaying livechat...")
                     await thread.send(content="@everyone")
 
