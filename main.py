@@ -9,17 +9,18 @@ from datetime import datetime
 import discord
 import httplib2
 import redis
+from discord import app_commands
 from googleapiclient.discovery import build
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
 from oauth2client.tools import argparser, run_flow
 
-from constant import (ACTIVE, CLIENT_SECRETS_FILE, COMMAND_START, COMMAND_STOP,
-                      DISCORD_COMMAND, LIVE, MISSING_CLIENT_SECRETS_MESSAGE,
-                      REDIS_CHAT_KEY, REDIS_STATUS_KEY,
-                      YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-                      YOUTUBE_READ_WRITE_SCOPE)
-from util import get_command, write_to_file
+from constant import (ACTIVE, CLIENT_SECRETS_FILE, COMMAND_LEAVE,
+                      COMMAND_START, COMMAND_STOP, LIVE,
+                      MISSING_CLIENT_SECRETS_MESSAGE, REDIS_CHAT_KEY,
+                      REDIS_STATUS_KEY, YOUTUBE_API_SERVICE_NAME,
+                      YOUTUBE_API_VERSION, YOUTUBE_READ_WRITE_SCOPE)
+from util import write_to_file
 
 os.path.abspath(os.path.join(os.path.dirname(
     __file__), CLIENT_SECRETS_FILE))
@@ -178,88 +179,85 @@ async def relay_chat(display_name: str, channel_id: str, live_stream_id: str, th
 
 
 def discord_setup():
+    global guild_id
     log.info("setup discord...")
 
-    intent = discord.Intents.default()
-    intent.message_content = True
-    client = discord.Client(intents=intent)
+    intents = discord.Intents.default()
+    intents.message_content = True
+    client = discord.Client(intents=intents)
+    tree = app_commands.CommandTree(client)
+
+    guild_id = discord.Object(id=1071483470141997056)
 
     @client.event
     async def on_ready():
+        await tree.sync(guild=guild_id)
         log.info(f'{client.user} has connected to Discord!')
 
-    @client.event
-    async def on_message(message: discord.Message):
-        if message.author.name == authorized_user:
-            if message.content.startswith(DISCORD_COMMAND):
-                commands = get_command(message.content)
-                if len(commands) < 2:
-                    return
+    @tree.command(name=COMMAND_START, description="Start relaying live chat", guild=guild_id)
+    async def start_command(interaction: discord.Interaction, channel_id: str, author_name: str):
+        if redis_is_exist(REDIS_STATUS_KEY.format(channel_id)):
+            await interaction.response.send_message("relaying for channel {} already started".format(channel_id))
+            return
 
-                if commands[0] == COMMAND_START:
-                    channel_id = commands[1]
-                    author_name = commands[2]
+        # await interaction.response.send_message("Start relaying {}, please check the newly created thread for this live stream".format(channel_name))
+        await interaction.response.send_message("Start relaying...")
 
-                    if redis_is_exist(REDIS_STATUS_KEY.format(channel_id)):
-                        await message.channel.send("relaying for channel {} already started".format(channel_id))
-                        return
+        g = client.get_guild(interaction.guild.id)
+        tc = None
+        for c in g.text_channels:
+            if c.name == bot_channel_name:
+                tc = c
+        if tc is None:
+            await interaction.followup.send("Text channel for relaying live chat is not found")
+            return
 
-                    log.info(
-                        "creating new thread for livechat relay, channel: {}".format(channel_id))
-                    channels = client.get_all_channels()
-                    cid = ""
-                    for c in channels:
-                        if c.name == bot_channel_name:
-                            cid = c.id
-                    tc = client.get_channel(cid)
+        live_stream_data = search_live_stream(channel_id)
+        if len(live_stream_data) < 1:
+            await interaction.followup.send("channel {} is not live streaming right now".format(channel_id))
+            return
 
-                    live_stream_data = search_live_stream(channel_id)
-                    if len(live_stream_data) < 1:
-                        await message.channel.send("channel {} is not live streaming right now".format(channel_id))
-                        return
+        redis_set(REDIS_STATUS_KEY.format(
+            channel_id), ACTIVE)
 
-                    redis_set(REDIS_STATUS_KEY.format(
-                        channel_id), ACTIVE)
+        live_stream_id = live_stream_data[0]
+        live_stream_title = live_stream_data[1]
+        channel_name = live_stream_data[2]
 
-                    live_stream_id = live_stream_data[0]
-                    live_stream_title = live_stream_data[1]
-                    channel_name = live_stream_data[2]
+        log.debug("got live stream data, channel name: {}, live stream id: {}, live stream title: {}".format(
+            channel_name, live_stream_id, live_stream_title))
 
-                    log.debug("got live stream data, channel name: {}, live stream id: {}, live stream title: {}".format(
-                        channel_name, live_stream_id, live_stream_title))
+        log.info(
+            "creating new thread for livechat relay, channel: {}".format(channel_id))
+        thread_name = "{}|{}|{}".format(
+            datetime.today().strftime('%Y-%m-%d'), channel_name, live_stream_title)
+        if len(thread_name) > 100:
+            thread_name = thread_name[:100]
+        thread = await tc.create_thread(name=thread_name, reason="livechat relay", type=discord.ChannelType.public_thread)
+        log.debug("thread id: {}, name: {}".format(
+            thread.id, thread.name))
+        await thread.send(content="This is the start of this thread, relaying livechat...")
+        await thread.send(content="@everyone")
 
-                    thread_name = "{}|{}|{}".format(
-                        datetime.today().strftime('%Y-%m-%d'), channel_name, live_stream_title)
-                    if len(thread_name) > 100:
-                        thread_name = thread_name[:100]
-                    thread = await tc.create_thread(name=thread_name, reason="livechat relay", type=discord.ChannelType.public_thread)
-                    log.debug("thread id: {}, name: {}".format(
-                        thread.id, thread.name))
-                    log.debug("relaying chat...")
-                    await message.channel.send("Start relaying {}, please check the newly created thread for this live stream".format(channel_name))
-                    await thread.send(content="This is the start of this thread, relaying livechat...")
-                    await thread.send(content="@everyone")
+        await relay_chat(
+            display_name=author_name,
+            channel_id=channel_id,
+            live_stream_id=live_stream_id,
+            thread=thread
+        )
 
-                    await relay_chat(
-                        display_name=author_name,
-                        channel_id=channel_id,
-                        live_stream_id=live_stream_id,
-                        thread=thread
-                    )
+    @tree.command(name=COMMAND_STOP, description="Stoping live chat relay", guild=guild_id)
+    async def stop_command(interaction: discord.Interaction, channel_id: str):
+        redis_del("{}::*".format(channel_id))
+        await interaction.response.send_message("Stop relaying livechat for channel {}".format(channel_id))
+        log.info(
+            "stop relaying livechat for channel: {}".format(channel_id))
 
-                elif commands[0] == COMMAND_STOP:
-                    channel_id = commands[1]
-
-                    redis_del("{}::*".format(channel_id))
-                    await message.channel.send("Stop relaying livechat for channel {}".format(channel_id))
-                    log.info(
-                        "stop relaying livechat for channel: {}".format(channel_id))
-
-            # if message.content == "/bot leave":
-            #     for g in client.guilds:
-            #         if g.id == message.channel.guild.id:
-            #             print("leaving the server ...")
-            #             await g.leave()
+    @tree.command(name=COMMAND_LEAVE, description="Make bot leaves the server", guild=guild_id)
+    async def leave_command(interaction: discord.Integration):
+        await interaction.response.send_message("Bye bye! May we meet again somewhere")
+        print(f"leaving server {interaction.guild.id}")
+        await client.get_guild(interaction.guild.id).leave()
 
     client.run(discord_token)
 

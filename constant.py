@@ -8,7 +8,7 @@ REDIS_CHAT_KEY = "{}::{}::{}::"  # channel_id::livechatid::author_name::chat_id
 
 COMMAND_START = "start"
 COMMAND_STOP = "stop"
-DISCORD_COMMAND = "/dytb"
+COMMAND_LEAVE = "leave"
 
 ACTIVE = "active"
 LIVE = "live"
