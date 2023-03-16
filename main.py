@@ -37,5 +37,6 @@ if __name__ == "__main__":
         guild_id=1071483470141997056,
         redis=rd,
         youtube=yt_inst,
+        mysql=db
     )
     discord.run_discord()

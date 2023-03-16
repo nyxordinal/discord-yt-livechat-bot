@@ -9,6 +9,7 @@ REDIS_CHAT_KEY = "{}::{}::{}::"  # channel_id::livechatid::author_name::chat_id
 COMMAND_START = "start"
 COMMAND_STOP = "stop"
 COMMAND_LEAVE = "leave"
+COMMAND_CHANNEL_ADD = "add"
 
 ACTIVE = "active"
 LIVE = "live"

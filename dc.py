@@ -6,14 +6,16 @@ import discord
 from discord import app_commands
 
 from config import Config
-from constant import (ACTIVE, COMMAND_LEAVE, COMMAND_START, COMMAND_STOP,
-                      REDIS_CHAT_KEY, REDIS_STATUS_KEY)
+from constant import (ACTIVE, COMMAND_CHANNEL_ADD, COMMAND_LEAVE,
+                      COMMAND_START, COMMAND_STOP, REDIS_CHAT_KEY,
+                      REDIS_STATUS_KEY)
 from rd import Redis
+from sql import MysqlClient
 from yt import YoutubeClient
 
 
 class DiscordClient:
-    def __init__(self, logger: log, config: Config, guild_id: int, redis: Redis, youtube: YoutubeClient) -> None:
+    def __init__(self, logger: log, config: Config, guild_id: int, redis: Redis, youtube: YoutubeClient, mysql: MysqlClient) -> None:
         self._logger = logger
         self._config = config
         intents = discord.Intents.default()
@@ -23,6 +25,7 @@ class DiscordClient:
         self._guild_id = discord.Object(id=guild_id)
         self._yt = youtube
         self._rd = redis
+        self._db = mysql
 
     def get_guild_id(self) -> discord.Object:
         return self._guild_id
@@ -83,10 +86,28 @@ class DiscordClient:
                 f"stop relaying livechat for channel: {channel_id}")
 
         @self._tree.command(name=COMMAND_LEAVE, description="Make bot leaves the server", guild=self._guild_id)
-        async def leave_command(interaction: discord.Integration):
+        async def leave_command(interaction: discord.Interaction):
             await interaction.response.send_message("Bye bye! May we meet again somewhere")
             print(f"leaving server {interaction.guild.id}")
             await self._client.get_guild(interaction.guild.id).leave()
+
+        @self._tree.command(name=COMMAND_CHANNEL_ADD, description="Add new channel to bot, only useable by admin", guild=self._guild_id)
+        async def add_channel(interaction: discord.Interaction, channel_id: str):
+            user_tag = f"{interaction.user.name}#{interaction.user.discriminator}"
+            if user_tag == self._config.admin_user:
+                await interaction.response.send_message(f"Adding new channel command requested by {interaction.user.name}")
+                if self._db.is_channel_exist(channel_id):
+                    await interaction.followup.send("Channel already exist")
+                    return
+                channel_data = self._yt.get_channel_data(channel_id=channel_id)
+                self._db.add_channel(
+                    channel_id=channel_data[0],
+                    channel_title=channel_data[1],
+                    channel_custom_url=channel_data[2]
+                )
+                await interaction.followup.send(f"Channel id: {channel_data[0]}, title: {channel_data[1]} added successfully")
+            else:
+                await interaction.response.send_message("You don't have access to this command")
 
         self._client.run(self._config.discord_token)
 

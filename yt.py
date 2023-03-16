@@ -63,3 +63,12 @@ class YoutubeClient:
         ).execute()
         write_to_file("python_output3.json", live_chat_result)
         return live_chat_result["items"]
+
+    def get_channel_data(self, channel_id: str):
+        channel_result = self._yt_inst.channels().list(
+            part="snippet,contentDetails,status",
+            id=channel_id
+        ).execute()
+        write_to_file("python_output4.json", channel_result)
+        channel = channel_result["items"][0]
+        return [channel["id"], channel["snippet"]["title"], channel["snippet"]["customUrl"]]

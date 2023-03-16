@@ -11,6 +11,7 @@ class Config:
         self.redis_port = os.getenv("REDIS_PORT", "6379")
         self.discord_token = os.getenv("DISCORD_TOKEN", "")
         self.bot_channel_name = os.getenv("BOT_CHANNEL_NAME", "")
+        self.admin_user = os.getenv("ADMIN_USER", "")
 
         client_secret_raw = os.getenv("CLIENT_SECRETS_JSON", "")
         client_secret_json = json.loads(client_secret_raw)
